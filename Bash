@@ -1,0 +1,46 @@
+curl -k -X "POST" "https://<amdc-apliance>.ads.mckinsey.com/BeyondTrust/api/public/v3/Auth/SignAppin" \
+        -H 'Cookie: ASP.NET_SessionId=<session_ID>' \
+        -H 'Authorization: PS-Auth key=<key>; runas=<user>;' \
+        -H 'Content-Type: application/json; charset=utf-8' \
+        -d $'{}'
+
+## List Account
+asset=$1
+MA=$2
+assetId=$(curl -k "https://<amdc-apliance>.ads.mckinsey.com/BeyondTrust/api/public/v3/ManagedAccounts?systemName=$asset&accountName=$MA" \
+        -H 'Cookie: ASP.NET_SessionId=<session_ID>' \
+        -H 'Authorization: PS-Auth key=<key>; runas=<user>;' \ | tr -s ':' ',' | cut -d ',' -f4)
+
+MAId=$(curl -k "https://<amdc-apliance>.ads.mckinsey.com/BeyondTrust/api/public/v3/ManagedAccounts?systemName=$asset&accountName=$MA" \
+        -H 'Cookie: ASP.NET_SessionId=<session_ID>' \
+        -H 'Authorization: PS-Auth key=<key>; runas=<user>;' \ | tr -s ':' ',' | cut -d ',' -f10)
+
+        echo -e "\nThe Asset ID is: $assetId"
+        echo -e "The Mannaged Account IS is: $MAId\n"
+
+##Ceate Request
+requestId=$(curl -k -X "POST" "https://<amdc-apliance>.ads.mckinsey.com/BeyondTrust/api/public/v3/Requests" \
+        -H 'Cookie: ASP.NET_SessionId=<session_ID>' \
+        -H 'Authorization: PS-Auth key=<key>; runas=<user>;' \
+        -H 'Content-Type: application/json' \
+        -d $'{"SystemId": "'"$assetId"'","Reason": "API Request","AccountId": "'"$MAId"'","DurationMinutes": 5}')
+
+        echo -e "\nRequest ID is $requestId\n"
+
+#Get Password
+creds=$(curl -k "https://<amdc-apliance>.ads.mckinsey.com/BeyondTrust/api/public/v3/Credentials/$requestId" \
+        -H 'ContentType: application/json' \
+        -H 'Authorization: PS-Auth key=<key>; runas=<user>;' \
+        -H 'Cookie: ASP.NET_SessionId=<session_ID>'  | tr -s '"' ',' | cut -d "," -f2)
+
+        echo -e "\nThe Password is $creds\n"
+
+#sshpass -p "$creds" ssh -q -o StrictHostKeyChecking=no root@<asset> hostname
+
+
+## Check in Password
+curl -k -X "PUT" "https://<amdc-apliance>.ads.mckinsey.com/BeyondTrust/api/public/v3/Requests/$requestId/Checkin" \
+        -H 'Cookie: ASP.NET_SessionId=<session_ID>' \
+        -H 'Authorization: PS-Auth key=<key>; runas=<user>;' \
+        -H 'Content-Type: application/json' \
+        -d $'{"reason": "test"}'

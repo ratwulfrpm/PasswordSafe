@@ -1,0 +1,100 @@
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+#Secure Connection
+#$url = "https://<appliance>/Beyondtrust/api/public/v3/";
+
+#The Application API Key generated for this implementation
+$apiKey = "Your Key Here"; #PROD
+
+#Username of BI user associated to the API Key
+$runAsUser = "API User Here";
+
+#$workgroupName = "BEYONDTRUST WORKGROUP";
+$systemName = "System Name Here";
+$accountName = "Account to retrieve Here";
+
+#region Trust All Certificates
+#Uncomment the following block if you want to trust an unsecure connection.
+#
+#The Invoke-RestMethod CmdLet does not currently have an option for ignoring SSL warnings (i.e self-signed CA certificates).
+#This policy is a temporary workaround to allow that for development purposes.
+#Warning: If using this policy, be absolutely sure the host is secure.
+<#add-type "
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
+public class TrustAllCertsPolicy : ICertificatePolicy {
+    public bool CheckValidationResult(ServicePoint srvPoint, X509Certificate certificate, WebRequest request, int certificateProblem)
+    {
+        return true;
+    }
+}
+";
+[System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy;
+#>
+#endregion
+
+#Verbose logging?
+$verbose = $True;
+
+#Internal session ID for subsequent API calls
+$session = [guid]::NewGuid();
+
+#PowerShell throws an exception for any API that does not return success
+#In our case, assume any API exception should kick out
+try
+{
+     # Sign-In
+     if ($verbose) { "Signing-in... POST ${url}Auth/SignAppIn"; }
+     $signInResult = Invoke-RestMethod -Uri "${url}Auth/SignAppIn" -Method POST -Headers @{ Authorization="PS-Auth key=$apiKey; runas=$runAsUser;"; } -SessionVariable session;
+     if ($verbose) { "..Signed-in as {0}" -f $signInResult.UserName; }
+
+     if ($verbose) { "Calling.. GET ${url}ManagedAccounts?systemName=$($systemName)&accountName=$($accountName)"; }
+	 $ma = Invoke-RestMethod -Uri "${url}ManagedAccounts?systemName=$($systemName)&accountName=$($accountName)" -Method GET -WebSession $session;
+     
+     if($ma -eq $null)
+     {
+	    if ($verbose) { "..Found no such account named {0} on system {1}!" -f ${accountName}, ${systemName}; }
+     }
+     else
+     {
+        
+	    if ($verbose) { "..Found account named {0} on system {1}!" -f ${accountName}, ${systemName}; }
+
+        if ($verbose) { "Requesting Credentials for {0} on {1}..." -f $ma.AccountId, $ma.SystemId  }
+	    $durationInMins = 1; 
+	    $rID = Invoke-RestMethod -Uri "${url}Requests" -Method POST -WebSession $session -Body @{SystemId="$($ma.SystemId)";AccountId="$($ma.AccountId)";DurationMinutes="${durationInMins}"};
+  
+	    [string]$creds = $null;
+	    if ($verbose) { "Retrieving Password..."; }
+	    $creds = Invoke-RestMethod -Uri "${url}Credentials/$rID" -Method GET -WebSession $session;
+        #Uncomment next line to print the credentials
+        #$creds;
+        "";
+
+	    if ($verbose) { "Releasing Request..."; }
+	    $d = Get-date;
+	    $reason = { "API Test Complete {0} {1}" -f $d.ToShortDateString(), $d.ToShortTimeString(); }
+	    $reasonJSON = ConvertTo-Json @{Reason="${reason}"};
+	    $release = Invoke-RestMethod -Uri "${url}Requests/Release/$rID" -Method PUT -WebSession $session -Body $reasonJSON -ContentType "application/json";
+
+	    if ($verbose) { "Request Releases..."; }
+
+     }
+	 
+     if ($verbose) { "Done!"; }
+}
+catch
+{
+    "";
+    "Exception:";
+
+    if ($verbose)
+    {$_.Exception
+        $_.Exception | Format-List -Force;
+    }
+    else
+    {
+        $_.Exception.GetType().FullName;
+        $_.Exception.Message;
+    }
+}
